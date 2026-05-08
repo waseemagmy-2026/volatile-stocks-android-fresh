@@ -123,8 +123,8 @@ class StockDetailActivity : AppCompatActivity() {
         thread {
             try {
                 val url = buildUrl(
-                    function = "TIME_SERIES_INTRADAY",
-                    extra = mapOf(
+                    "TIME_SERIES_INTRADAY",
+                    mapOf(
                         "symbol" to symbol,
                         "interval" to "5min",
                         "outputsize" to "compact",
@@ -135,10 +135,11 @@ class StockDetailActivity : AppCompatActivity() {
                 val response = URL(url).readText()
                 val json = JSONObject(response)
 
-                val key = when {
-                    json.has("Time Series (5min)") -> "Time Series (5min)"
-                    json.has("Time Series (15min)") -> "Time Series (15min)"
-                    else -> null
+                var key: String? = null
+                if (json.has("Time Series (5min)")) {
+                    key = "Time Series (5min)"
+                } else if (json.has("Time Series (15min)")) {
+                    key = "Time Series (15min)"
                 }
 
                 if (key == null) {
@@ -150,9 +151,14 @@ class StockDetailActivity : AppCompatActivity() {
                 }
 
                 val series = json.getJSONObject(key)
-                val keys = series.keys().asSequence().toList().sorted()
+                val times = ArrayList<String>()
+                val iterator = series.keys()
+                while (iterator.hasNext()) {
+                    times.add(iterator.next())
+                }
+                times.sort()
 
-                if (keys.isEmpty()) {
+                if (times.isEmpty()) {
                     runOnUiThread {
                         chart.clear()
                         chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
@@ -165,7 +171,7 @@ class StockDetailActivity : AppCompatActivity() {
                 var dailyHigh = 0.0
                 var lastClose = 0.0
 
-                for (time in keys) {
+                for (time in times) {
                     val item = series.getJSONObject(time)
                     val close = item.optString("4. close", "0").toFloatOrNull() ?: 0f
                     val high = item.optString("2. high", "0").toDoubleOrNull() ?: 0.0
@@ -176,11 +182,11 @@ class StockDetailActivity : AppCompatActivity() {
                 }
 
                 runOnUiThread {
-                    val dataSet = LineDataSet(entries, symbol).apply {
-                        setDrawCircles(false)
-                        lineWidth = 2f
-                        setDrawValues(false)
-                    }
+                    val dataSet = LineDataSet(entries, symbol)
+                    dataSet.setDrawCircles(false)
+                    dataSet.lineWidth = 2f
+                    dataSet.setDrawValues(false)
+
                     chart.data = LineData(dataSet)
                     chart.invalidate()
 
@@ -197,7 +203,7 @@ class StockDetailActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     chart.clear()
-                    chartStatusText.text = "שגיאה בטעינת גרף: ${e.message}"
+                    chartStatusText.text = "שגיאה בטעינת גרף"
                 }
             }
         }
@@ -207,8 +213,8 @@ class StockDetailActivity : AppCompatActivity() {
         thread {
             try {
                 val url = buildUrl(
-                    function = "RSI",
-                    extra = mapOf(
+                    "RSI",
+                    mapOf(
                         "symbol" to symbol,
                         "interval" to "5min",
                         "time_period" to "14",
@@ -227,17 +233,22 @@ class StockDetailActivity : AppCompatActivity() {
                 }
 
                 val rsiObject = json.getJSONObject("Technical Analysis: RSI")
-                val latestKey = rsiObject.keys().asSequence().toList().sorted().lastOrNull()
+                val rsiTimes = ArrayList<String>()
+                val iterator = rsiObject.keys()
+                while (iterator.hasNext()) {
+                    rsiTimes.add(iterator.next())
+                }
+                rsiTimes.sort()
 
-                if (latestKey == null) {
+                if (rsiTimes.isEmpty()) {
                     runOnUiThread {
                         rsiText.text = "RSI: --"
                     }
                     return@thread
                 }
 
-                val rsiValue = rsiObject.getJSONObject(latestKey)
-                    .optString("RSI", "--")
+                val latestKey = rsiTimes[rsiTimes.size - 1]
+                val rsiValue = rsiObject.getJSONObject(latestKey).optString("RSI", "--")
 
                 runOnUiThread {
                     rsiText.text = "RSI: $rsiValue"
@@ -255,8 +266,8 @@ class StockDetailActivity : AppCompatActivity() {
         thread {
             try {
                 val url = buildUrl(
-                    function = "GLOBAL_QUOTE",
-                    extra = mapOf("symbol" to symbol)
+                    "GLOBAL_QUOTE",
+                    mapOf("symbol" to symbol)
                 )
 
                 val response = URL(url).readText()
@@ -269,14 +280,14 @@ class StockDetailActivity : AppCompatActivity() {
                 val high = quote.optString("03. high", "--")
 
                 runOnUiThread {
-                    if (lastPriceText.text.contains("--")) {
+                    if (lastPriceText.text.toString().contains("--")) {
                         lastPriceText.text = "מחיר אחרון: $price"
                     }
-                    if (highText.text.contains("--")) {
+                    if (highText.text.toString().contains("--")) {
                         highText.text = "שיא יומי: $high"
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
             }
         }
     }
