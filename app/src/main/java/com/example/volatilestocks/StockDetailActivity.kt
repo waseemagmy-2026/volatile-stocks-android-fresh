@@ -1,6 +1,6 @@
 package com.example.volatilestocks
 
-import android.graphics.Color
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -8,134 +8,289 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import java.text.DecimalFormat
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.Description
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+import org.json.JSONObject
+import java.net.URL
+import java.net.URLEncoder
 import kotlin.concurrent.thread
 
 class StockDetailActivity : AppCompatActivity() {
 
-    private lateinit var symbolTitle: TextView
-    private lateinit var detailStatusText: TextView
-    private lateinit var lineChartView: LineChartView
+    private lateinit var symbolText: TextView
+    private lateinit var chartStatusText: TextView
     private lateinit var rsiText: TextView
     private lateinit var highText: TextView
     private lateinit var lastPriceText: TextView
-    private lateinit var dropAlertInput: EditText
-    private lateinit var nearHighInput: EditText
-    private lateinit var saveAlertButton: Button
-    private lateinit var refreshNowButton: Button
-    private lateinit var prefs: AppPrefs
-    private lateinit var notifications: NotificationHelper
+    private lateinit var dropThresholdInput: EditText
+    private lateinit var highThresholdInput: EditText
+    private lateinit var saveAlertsButton: Button
+    private lateinit var refreshButton: Button
+    private lateinit var chart: LineChart
 
     private val handler = Handler(Looper.getMainLooper())
-    private lateinit var symbol: String
-    private var referencePrice: Double? = null
+    private var refreshRunnable: Runnable? = null
 
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            loadDetail()
-            handler.postDelayed(this, 15_000)
-        }
-    }
+    private var symbol: String = ""
+    private var apiKey: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_stock_detail)
 
-        prefs = AppPrefs(this)
-        notifications = NotificationHelper(this)
-
-        symbol = intent.getStringExtra("symbol") ?: "N/A"
-        symbolTitle = findViewById(R.id.symbolTitle)
-        detailStatusText = findViewById(R.id.detailStatusText)
-        lineChartView = findViewById(R.id.lineChartView)
+        symbolText = findViewById(R.id.symbolText)
+        chartStatusText = findViewById(R.id.chartStatusText)
         rsiText = findViewById(R.id.rsiText)
         highText = findViewById(R.id.highText)
         lastPriceText = findViewById(R.id.lastPriceText)
-        dropAlertInput = findViewById(R.id.dropAlertInput)
-        nearHighInput = findViewById(R.id.nearHighInput)
-        saveAlertButton = findViewById(R.id.saveAlertButton)
-        refreshNowButton = findViewById(R.id.refreshNowButton)
+        dropThresholdInput = findViewById(R.id.dropThresholdInput)
+        highThresholdInput = findViewById(R.id.highThresholdInput)
+        saveAlertsButton = findViewById(R.id.saveAlertsButton)
+        refreshButton = findViewById(R.id.refreshButton)
+        chart = findViewById(R.id.lineChart)
 
-        symbolTitle.text = symbol
-        dropAlertInput.setText(prefs.getString("drop_$symbol", "3"))
-        nearHighInput.setText(prefs.getString("high_$symbol", "0.5"))
+        symbol = intent.getStringExtra("symbol") ?: ""
+        apiKey = getSharedPreferences("scanner_prefs", Context.MODE_PRIVATE)
+            .getString("api_key", "") ?: ""
 
-        saveAlertButton.setOnClickListener {
-            prefs.saveString("drop_$symbol", dropAlertInput.text.toString())
-            prefs.saveString("high_$symbol", nearHighInput.text.toString())
-            detailStatusText.text = "ההתראות נשמרו"
+        symbolText.text = symbol
+
+        val prefs = getSharedPreferences("alerts_$symbol", Context.MODE_PRIVATE)
+        dropThresholdInput.setText(prefs.getFloat("dropThreshold", 3f).toString())
+        highThresholdInput.setText(prefs.getFloat("highThreshold", 0.5f).toString())
+
+        saveAlertsButton.setOnClickListener {
+            val drop = dropThresholdInput.text.toString().toFloatOrNull() ?: 3f
+            val high = highThresholdInput.text.toString().toFloatOrNull() ?: 0.5f
+            prefs.edit()
+                .putFloat("dropThreshold", drop)
+                .putFloat("highThreshold", high)
+                .apply()
+            chartStatusText.text = "ההתראות נשמרו"
         }
 
-        refreshNowButton.setOnClickListener {
-            loadDetail()
+        refreshButton.setOnClickListener {
+            loadAllData()
         }
+
+        setupChart()
+        loadAllData()
+        startAutoRefresh()
     }
 
-    override fun onResume() {
-        super.onResume()
-        loadDetail()
-        handler.postDelayed(refreshRunnable, 15_000)
+    override fun onDestroy() {
+        super.onDestroy()
+        refreshRunnable?.let { handler.removeCallbacks(it) }
     }
 
-    override fun onPause() {
-        super.onPause()
-        handler.removeCallbacks(refreshRunnable)
+    private fun startAutoRefresh() {
+        refreshRunnable = object : Runnable {
+            override fun run() {
+                loadAllData()
+                handler.postDelayed(this, 15000)
+            }
+        }
+        handler.postDelayed(refreshRunnable!!, 15000)
     }
 
-    private fun loadDetail() {
-        val apiKey = prefs.getApiKey()
+    private fun setupChart() {
+        chart.setNoDataText("No chart data")
+        chart.setTouchEnabled(true)
+        chart.setPinchZoom(true)
+        chart.axisRight.isEnabled = false
+        chart.legend.isEnabled = false
+        val desc = Description()
+        desc.text = ""
+        chart.description = desc
+    }
+
+    private fun loadAllData() {
         if (apiKey.isBlank()) {
-            detailStatusText.text = "חסר API key במסך הראשי"
+            chartStatusText.text = "אין API KEY"
             return
         }
 
-        detailStatusText.text = "טוען גרף, RSI והתראות..."
+        chartStatusText.text = "טוען נתוני גרף ו-RSI..."
+        loadIntradayChart()
+        loadRsi()
+        loadQuoteFallback()
+    }
 
+    private fun loadIntradayChart() {
         thread {
             try {
-                val detail = AlphaVantageService(apiKey).fetchDetail(symbol)
-                runOnUiThread {
-                    bindDetail(detail)
-                    detailStatusText.text = "עודכן ${detail.points.lastOrNull()?.timestampLabel ?: ""}"
+                val url = buildUrl(
+                    function = "TIME_SERIES_INTRADAY",
+                    extra = mapOf(
+                        "symbol" to symbol,
+                        "interval" to "5min",
+                        "outputsize" to "compact",
+                        "datatype" to "json"
+                    )
+                )
+
+                val response = URL(url).readText()
+                val json = JSONObject(response)
+
+                val key = when {
+                    json.has("Time Series (5min)") -> "Time Series (5min)"
+                    json.has("Time Series (15min)") -> "Time Series (15min)"
+                    else -> null
                 }
+
+                if (key == null) {
+                    runOnUiThread {
+                        chart.clear()
+                        chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
+                    }
+                    return@thread
+                }
+
+                val series = json.getJSONObject(key)
+                val keys = series.keys().asSequence().toList().sorted()
+
+                if (keys.isEmpty()) {
+                    runOnUiThread {
+                        chart.clear()
+                        chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
+                    }
+                    return@thread
+                }
+
+                val entries = ArrayList<Entry>()
+                var index = 0f
+                var dailyHigh = 0.0
+                var lastClose = 0.0
+
+                for (time in keys) {
+                    val item = series.getJSONObject(time)
+                    val close = item.optString("4. close", "0").toFloatOrNull() ?: 0f
+                    val high = item.optString("2. high", "0").toDoubleOrNull() ?: 0.0
+                    if (high > dailyHigh) dailyHigh = high
+                    lastClose = close.toDouble()
+                    entries.add(Entry(index, close))
+                    index += 1f
+                }
+
+                runOnUiThread {
+                    val dataSet = LineDataSet(entries, symbol).apply {
+                        setDrawCircles(false)
+                        lineWidth = 2f
+                        setDrawValues(false)
+                    }
+                    chart.data = LineData(dataSet)
+                    chart.invalidate()
+
+                    if (dailyHigh > 0) {
+                        highText.text = "שיא יומי: %.2f".format(dailyHigh)
+                    }
+                    if (lastClose > 0) {
+                        lastPriceText.text = "מחיר אחרון: %.2f".format(lastClose)
+                    }
+
+                    chartStatusText.text = "נתוני גרף נטענו"
+                }
+
             } catch (e: Exception) {
                 runOnUiThread {
-                    detailStatusText.text = e.message ?: "שגיאה בטעינת נתוני מניה"
-                    detailStatusText.setTextColor(Color.RED)
+                    chart.clear()
+                    chartStatusText.text = "שגיאה בטעינת גרף: ${e.message}"
                 }
             }
         }
     }
 
-    private fun bindDetail(detail: StockDetailData) {
-        val dropPercent = dropAlertInput.text.toString().toDoubleOrNull() ?: 3.0
-        val nearHighPercent = nearHighInput.text.toString().toDoubleOrNull() ?: 0.5
+    private fun loadRsi() {
+        thread {
+            try {
+                val url = buildUrl(
+                    function = "RSI",
+                    extra = mapOf(
+                        "symbol" to symbol,
+                        "interval" to "5min",
+                        "time_period" to "14",
+                        "series_type" to "close"
+                    )
+                )
 
-        val closes = detail.points.map { it.close }
-        lineChartView.setValues(closes)
-        rsiText.text = "RSI: ${detail.rsi?.let { DecimalFormat("0.00").format(it) } ?: "--"}"
-        highText.text = "שיא יומי: ${DecimalFormat("0.00").format(detail.dayHigh)}"
-        lastPriceText.text = "מחיר אחרון: ${DecimalFormat("0.00").format(detail.lastPrice)}"
+                val response = URL(url).readText()
+                val json = JSONObject(response)
 
-        val baseline = referencePrice ?: detail.lastPrice.also { referencePrice = it }
-        val dropFromReference = if (baseline == 0.0) 0.0 else ((baseline - detail.lastPrice) / baseline) * 100.0
-        val distanceToHigh = if (detail.dayHigh == 0.0) 100.0 else ((detail.dayHigh - detail.lastPrice) / detail.dayHigh) * 100.0
+                if (!json.has("Technical Analysis: RSI")) {
+                    runOnUiThread {
+                        rsiText.text = "RSI: --"
+                    }
+                    return@thread
+                }
 
-        if (dropFromReference >= dropPercent) {
-            notifications.showNotification(
-                "$symbol ירדה חזק",
-                "$symbol ירדה ${DecimalFormat("0.00").format(dropFromReference)}% ממחיר הייחוס.",
-                symbol.hashCode() + 10
-            )
-            referencePrice = detail.lastPrice
+                val rsiObject = json.getJSONObject("Technical Analysis: RSI")
+                val latestKey = rsiObject.keys().asSequence().toList().sorted().lastOrNull()
+
+                if (latestKey == null) {
+                    runOnUiThread {
+                        rsiText.text = "RSI: --"
+                    }
+                    return@thread
+                }
+
+                val rsiValue = rsiObject.getJSONObject(latestKey)
+                    .optString("RSI", "--")
+
+                runOnUiThread {
+                    rsiText.text = "RSI: $rsiValue"
+                }
+
+            } catch (e: Exception) {
+                runOnUiThread {
+                    rsiText.text = "RSI: --"
+                }
+            }
         }
+    }
 
-        if (distanceToHigh <= nearHighPercent) {
-            notifications.showNotification(
-                "$symbol קרובה לשיא",
-                "$symbol נמצאת במרחק ${DecimalFormat("0.00").format(distanceToHigh)}% מהשיא היומי.",
-                symbol.hashCode() + 20
-            )
+    private fun loadQuoteFallback() {
+        thread {
+            try {
+                val url = buildUrl(
+                    function = "GLOBAL_QUOTE",
+                    extra = mapOf("symbol" to symbol)
+                )
+
+                val response = URL(url).readText()
+                val json = JSONObject(response)
+
+                if (!json.has("Global Quote")) return@thread
+
+                val quote = json.getJSONObject("Global Quote")
+                val price = quote.optString("05. price", "--")
+                val high = quote.optString("03. high", "--")
+
+                runOnUiThread {
+                    if (lastPriceText.text.contains("--")) {
+                        lastPriceText.text = "מחיר אחרון: $price"
+                    }
+                    if (highText.text.contains("--")) {
+                        highText.text = "שיא יומי: $high"
+                    }
+                }
+            } catch (_: Exception) {
+            }
         }
+    }
+
+    private fun buildUrl(function: String, extra: Map<String, String>): String {
+        val base = StringBuilder("https://www.alphavantage.co/query?function=$function")
+        for ((k, v) in extra) {
+            base.append("&")
+            base.append(k)
+            base.append("=")
+            base.append(URLEncoder.encode(v, "UTF-8"))
+        }
+        base.append("&apikey=")
+        base.append(URLEncoder.encode(apiKey, "UTF-8"))
+        return base.toString()
     }
 }
