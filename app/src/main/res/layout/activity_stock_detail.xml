@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/symbolTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SYMBOL"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/detailStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="טוען..."
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:gravity="center"
+            android:layout_marginBottom="12dp" />
+
+        <com.example.volatilestocks.LineChartView
+            android:id="@+id/lineChartView"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/rsiText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="RSI: --"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/highText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="שיא יומי: --"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/lastPriceText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="מחיר אחרון: --"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="התראת ירידה חדה (%)"
+            android:textColor="#FFFFFF" />
+
+        <EditText
+            android:id="@+id/dropAlertInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="3"
+            android:inputType="numberDecimal"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#2196F3"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="התראה קרוב לשיא (%)"
+            android:textColor="#FFFFFF" />
+
+        <EditText
+            android:id="@+id/nearHighInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="0.5"
+            android:inputType="numberDecimal"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#2196F3"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/saveAlertButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="שמור התראות"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/refreshNowButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="רענן עכשיו"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="רענון חי מתבצע כל 15 שניות בזמן שהמסך פתוח."
+            android:textColor="#AAAAAA"
+            android:textSize="14sp" />
+
+    </LinearLayout>
+</ScrollView>
