@@ -98,19 +98,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupSpinners() {
-        val sortAdapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            sortOptions
-        )
+        val sortAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, sortOptions)
         sortAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         sortSpinner.adapter = sortAdapter
 
-        val aiModeAdapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            aiModes
-        )
+        val aiModeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, aiModes)
         aiModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         aiModeSpinner.adapter = aiModeAdapter
 
@@ -123,12 +115,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupActions() {
         openSymbolButton.setOnClickListener {
+            val apiKey = apiKeyInput.text.toString().trim()
             val clean = normalizeSymbol(manualSymbolInput.text.toString())
+
+            if (apiKey.isBlank() || apiKey.equals("Alpha Vantage API Key", ignoreCase = true)) {
+                statusText.text = "יש להזין API KEY אמיתי של Alpha Vantage"
+                return@setOnClickListener
+            }
+
             if (clean.isBlank()) {
                 statusText.text = "יש להזין סימבול מניה, למשל AAPL"
                 return@setOnClickListener
             }
 
+            prefs.saveApiKey(apiKey)
             prefs.saveString("manual_symbol", clean)
             openStockDetail(clean)
         }
@@ -146,10 +146,10 @@ class MainActivity : AppCompatActivity() {
         val maxChange = maxChangeInput.text.toString().toDoubleOrNull() ?: 80.0
         val selectedSort = sortSpinner.selectedItem?.toString() ?: "ציון איכות"
 
-        if (apiKey.isBlank()) {
+        if (apiKey.isBlank() || apiKey.equals("Alpha Vantage API Key", ignoreCase = true)) {
             statusText.text = "חסר API KEY"
             resultsContainer.removeAllViews()
-            resultsContainer.addView(buildErrorText("יש להזין מפתח API של Alpha Vantage"))
+            resultsContainer.addView(buildErrorText("יש להזין מפתח אמיתי של Alpha Vantage"))
             return
         }
 
@@ -167,15 +167,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        saveScanPreferences(
-            apiKey = apiKey,
-            minPrice = minPrice,
-            maxPrice = maxPrice,
-            minVolume = minVolume,
-            minChange = minChange,
-            maxChange = maxChange,
-            selectedSort = selectedSort
-        )
+        saveScanPreferences(apiKey, minPrice, maxPrice, minVolume, minChange, maxChange, selectedSort)
 
         statusText.text = "טוען נתוני שוק..."
         resultsContainer.removeAllViews()
@@ -193,9 +185,7 @@ class MainActivity : AppCompatActivity() {
                 val json = JSONObject(response)
 
                 val apiError = extractApiError(json)
-                if (apiError != null) {
-                    throw Exception(apiError)
-                }
+                if (apiError != null) throw Exception(apiError)
 
                 val topGainers = json.optJSONArray("top_gainers") ?: JSONArray()
                 val uniqueStocks = linkedMapOf<String, ScanStock>()
@@ -314,9 +304,7 @@ class MainActivity : AppCompatActivity() {
                     BufferedReader(conn.errorStream.reader()).readText()
                 }
 
-                if (code !in 200..299) {
-                    throw Exception("AI server error: $body")
-                }
+                if (code !in 200..299) throw Exception("AI server error: $body")
 
                 val resp = JSONObject(body)
                 val analysesArr = resp.optJSONArray("analyses") ?: JSONArray()
@@ -364,9 +352,7 @@ class MainActivity : AppCompatActivity() {
 
         if (results.isEmpty()) {
             statusText.text = "לא נמצאו מניות תואמות"
-            resultsContainer.addView(
-                buildInfoText("נסה להרחיב טווח מחיר, להוריד מחזור מינימלי, או לפתוח מניה ידנית")
-            )
+            resultsContainer.addView(buildInfoText("נסה להרחיב טווח מחיר, להוריד מחזור מינימלי, או לפתוח מניה ידנית"))
             return
         }
 
@@ -384,9 +370,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = 24
-            }
+            ).apply { bottomMargin = 24 }
         }
 
         val title = TextView(this).apply {
@@ -552,15 +536,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun extractApiError(json: JSONObject): String? {
-        if (json.has("Note")) {
-            return json.optString("Note", "הגעת למגבלת הבקשות של Alpha Vantage")
-        }
-        if (json.has("Information")) {
-            return json.optString("Information", "לא התקבלה תשובה תקינה מהשרת")
-        }
-        if (json.has("Error Message")) {
-            return json.optString("Error Message", "שגיאה מהשרת")
-        }
+        if (json.has("Note")) return json.optString("Note", "הגעת למגבלת הבקשות של Alpha Vantage")
+        if (json.has("Information")) return json.optString("Information", "לא התקבלה תשובה תקינה מהשרת")
+        if (json.has("Error Message")) return json.optString("Error Message", "שגיאה מהשרת")
         return null
     }
 
@@ -570,10 +548,8 @@ class MainActivity : AppCompatActivity() {
             price in 30.0..80.0 -> 22.0
             else -> 15.0
         }
-
         val changeScore = changePercent.coerceIn(0.0, 60.0) * 0.8
         val volumeScore = (ln(volume.coerceAtLeast(1).toDouble()) * 4.5).coerceAtMost(30.0)
-
         return (priceScore + changeScore + volumeScore).toInt().coerceIn(1, 100)
     }
 
