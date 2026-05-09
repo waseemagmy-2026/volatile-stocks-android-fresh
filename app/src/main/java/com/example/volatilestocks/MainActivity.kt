@@ -56,6 +56,13 @@ class MainActivity : AppCompatActivity() {
 
         prefs = AppPrefs(this)
 
+        bindViews()
+        setupSavedValues()
+        setupSpinners()
+        setupActions()
+    }
+
+    private fun bindViews() {
         apiKeyInput = findViewById(R.id.apiKeyInput)
         manualSymbolInput = findViewById(R.id.manualSymbolInput)
         openSymbolButton = findViewById(R.id.openSymbolButton)
@@ -73,7 +80,9 @@ class MainActivity : AppCompatActivity() {
         scanButton = findViewById(R.id.scanButton)
         statusText = findViewById(R.id.statusText)
         resultsContainer = findViewById(R.id.resultsContainer)
+    }
 
+    private fun setupSavedValues() {
         apiKeyInput.setText(prefs.getApiKey())
         manualSymbolInput.setText(prefs.getString("manual_symbol", ""))
         backendUrlInput.setText(prefs.getString("backend_url", "http://127.0.0.1:3000"))
@@ -84,13 +93,18 @@ class MainActivity : AppCompatActivity() {
         minChangeInput.setText(prefs.getString("min_change", "3"))
         maxChangeInput.setText(prefs.getString("max_change", "80"))
 
-        val spinnerAdapter = ArrayAdapter(
+        statusText.text = "מוכן לסריקה"
+        aiAnalyzeButton.isEnabled = false
+    }
+
+    private fun setupSpinners() {
+        val sortAdapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_item,
             sortOptions
         )
-        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        sortSpinner.adapter = spinnerAdapter
+        sortAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        sortSpinner.adapter = sortAdapter
 
         val aiModeAdapter = ArrayAdapter(
             this,
@@ -105,19 +119,21 @@ class MainActivity : AppCompatActivity() {
 
         val savedAiMode = prefs.getString("ai_mode", "balanced")
         aiModeSpinner.setSelection(aiModes.indexOf(savedAiMode).coerceAtLeast(0))
+    }
 
+    private fun setupActions() {
         openSymbolButton.setOnClickListener {
             val clean = normalizeSymbol(manualSymbolInput.text.toString())
             if (clean.isBlank()) {
                 statusText.text = "יש להזין סימבול מניה, למשל AAPL"
                 return@setOnClickListener
             }
+
             prefs.saveString("manual_symbol", clean)
             openStockDetail(clean)
         }
 
         scanButton.setOnClickListener { runScan() }
-
         aiAnalyzeButton.setOnClickListener { runAiAnalysis() }
     }
 
@@ -133,22 +149,39 @@ class MainActivity : AppCompatActivity() {
         if (apiKey.isBlank()) {
             statusText.text = "חסר API KEY"
             resultsContainer.removeAllViews()
-            resultsContainer.addView(buildErrorText("יש להזין מפתח API של Alpha Vantage."))
+            resultsContainer.addView(buildErrorText("יש להזין מפתח API של Alpha Vantage"))
             return
         }
 
-        prefs.saveApiKey(apiKey)
-        prefs.saveString("min_price", minPrice.toString())
-        prefs.saveString("max_price", maxPrice.toString())
-        prefs.saveString("min_volume", minVolume.toString())
-        prefs.saveString("min_change", minChange.toString())
-        prefs.saveString("max_change", maxChange.toString())
-        prefs.saveString("sort_option", selectedSort)
+        if (minPrice > maxPrice) {
+            statusText.text = "טווח מחיר לא תקין"
+            resultsContainer.removeAllViews()
+            resultsContainer.addView(buildErrorText("מחיר מינימום חייב להיות קטן או שווה למחיר מקסימום"))
+            return
+        }
+
+        if (minChange > maxChange) {
+            statusText.text = "טווח אחוזים לא תקין"
+            resultsContainer.removeAllViews()
+            resultsContainer.addView(buildErrorText("אחוז עלייה מינימלי חייב להיות קטן או שווה לאחוז עלייה מקסימלי"))
+            return
+        }
+
+        saveScanPreferences(
+            apiKey = apiKey,
+            minPrice = minPrice,
+            maxPrice = maxPrice,
+            minVolume = minVolume,
+            minChange = minChange,
+            maxChange = maxChange,
+            selectedSort = selectedSort
+        )
 
         statusText.text = "טוען נתוני שוק..."
         resultsContainer.removeAllViews()
         scanButton.isEnabled = false
         aiAnalyzeButton.isEnabled = false
+        lastScanResults = emptyList()
         lastAiAnalyses = emptyMap()
 
         thread {
@@ -159,15 +192,13 @@ class MainActivity : AppCompatActivity() {
                 val response = URL(url).readText()
                 val json = JSONObject(response)
 
-                if (json.has("Note")) {
-                    throw Exception("הגעת למגבלת הבקשות של Alpha Vantage. נסה שוב בעוד דקה.")
-                }
-                if (json.has("Information")) {
-                    throw Exception(json.optString("Information", "לא התקבלה תשובה תקינה מהשרת."))
+                val apiError = extractApiError(json)
+                if (apiError != null) {
+                    throw Exception(apiError)
                 }
 
                 val topGainers = json.optJSONArray("top_gainers") ?: JSONArray()
-                val filtered = ArrayList<ScanStock>()
+                val uniqueStocks = linkedMapOf<String, ScanStock>()
 
                 for (i in 0 until topGainers.length()) {
                     val item = topGainers.optJSONObject(i) ?: continue
@@ -180,23 +211,24 @@ class MainActivity : AppCompatActivity() {
                     val changePercent = parsePercent(item.optString("change_percentage", "0"))
                     val volume = parseLong(item.optString("volume", "0"))
 
+                    if (price <= 0.0) continue
                     if (price < minPrice || price > maxPrice) continue
                     if (volume < minVolume) continue
                     if (changePercent < minChange || changePercent > maxChange) continue
 
                     val score = computeQualityScore(price, changePercent, volume)
 
-                    filtered.add(
-                        ScanStock(
-                            symbol = symbol,
-                            rawSymbol = rawSymbol,
-                            price = price,
-                            changePercent = changePercent,
-                            volume = volume,
-                            score = score
-                        )
+                    uniqueStocks[symbol] = ScanStock(
+                        symbol = symbol,
+                        rawSymbol = rawSymbol,
+                        price = price,
+                        changePercent = changePercent,
+                        volume = volume,
+                        score = score
                     )
                 }
+
+                val filtered = uniqueStocks.values.toList()
 
                 val sorted = when (selectedSort) {
                     "שינוי יומי" -> filtered.sortedByDescending { it.changePercent }
@@ -243,25 +275,25 @@ class MainActivity : AppCompatActivity() {
         statusText.text = "שולח לניתוח AI..."
         aiAnalyzeButton.isEnabled = false
 
-        val topStocks = lastScanResults.take(5)
+        val topStocks = lastScanResults.take(3)
 
         thread {
             try {
-                val reqJson = JSONObject()
-                reqJson.put("mode", mode)
-
-                val stocksArray = JSONArray()
-                topStocks.forEach { s ->
-                    val obj = JSONObject()
-                    obj.put("symbol", s.symbol)
-                    obj.put("price", s.price)
-                    obj.put("changePercent", s.changePercent)
-                    obj.put("volume", s.volume)
-                    obj.put("score", s.score)
-                    obj.put("notes", buildNotes(s))
-                    stocksArray.put(obj)
+                val reqJson = JSONObject().apply {
+                    put("mode", mode)
+                    put("stocks", JSONArray().apply {
+                        topStocks.forEach { s ->
+                            put(JSONObject().apply {
+                                put("symbol", s.symbol)
+                                put("price", s.price)
+                                put("changePercent", s.changePercent)
+                                put("volume", s.volume)
+                                put("score", s.score)
+                                put("notes", buildNotes(s))
+                            })
+                        }
+                    })
                 }
-                reqJson.put("stocks", stocksArray)
 
                 val conn = URL("$backendUrl/analyze-stocks").openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
@@ -320,6 +352,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     aiAnalyzeButton.isEnabled = true
                     statusText.text = "שגיאה בניתוח AI"
+                    renderResults(lastScanResults)
                     resultsContainer.addView(buildErrorText(e.message ?: "AI failed"))
                 }
             }
@@ -332,7 +365,7 @@ class MainActivity : AppCompatActivity() {
         if (results.isEmpty()) {
             statusText.text = "לא נמצאו מניות תואמות"
             resultsContainer.addView(
-                buildInfoText("נסה להרחיב טווח מחיר, להוריד מחזור מינימלי, או לפתוח מניה ידנית.")
+                buildInfoText("נסה להרחיב טווח מחיר, להוריד מחזור מינימלי, או לפתוח מניה ידנית")
             )
             return
         }
@@ -348,12 +381,12 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
             setBackgroundColor(Color.parseColor("#101010"))
-            val params = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.bottomMargin = 24
-            layoutParams = params
+            ).apply {
+                bottomMargin = 24
+            }
         }
 
         val title = TextView(this).apply {
@@ -384,7 +417,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(Color.WHITE)
             gravity = Gravity.END
-            setPadding(0, 18, 0, 0)
+            setPadding(0, 18, 0, 18)
         }
 
         val openButton = Button(this).apply {
@@ -400,54 +433,69 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(20, 20, 20, 20)
                 setBackgroundColor(Color.parseColor("#18202A"))
-                val p = LinearLayout.LayoutParams(
+                layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                p.topMargin = 18
-                layoutParams = p
+                ).apply {
+                    topMargin = 12
+                    bottomMargin = 16
+                }
             }
 
-            val aiTitle = TextView(this).apply {
+            aiBox.addView(TextView(this).apply {
                 text = "ניתוח AI: ${ai.aiScore}/100 | ${ai.verdict}"
                 textSize = 17f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.END
-            }
+            })
 
-            val aiRisk = TextView(this).apply {
+            aiBox.addView(TextView(this).apply {
                 text = "רמת סיכון: ${ai.riskLevel}"
                 textSize = 15f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.END
                 setPadding(0, 10, 0, 0)
-            }
+            })
 
-            val aiReasons = TextView(this).apply {
+            aiBox.addView(TextView(this).apply {
                 text = "סיבות:\n" + ai.reasons.joinToString("\n") { "• $it" }
                 textSize = 15f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.END
                 setPadding(0, 10, 0, 0)
-            }
+            })
 
-            val aiWarning = TextView(this).apply {
+            aiBox.addView(TextView(this).apply {
                 text = "אזהרה: ${ai.warning}"
                 textSize = 15f
                 setTextColor(Color.parseColor("#FFD166"))
                 gravity = Gravity.END
                 setPadding(0, 10, 0, 0)
-            }
+            })
 
-            aiBox.addView(aiTitle)
-            aiBox.addView(aiRisk)
-            aiBox.addView(aiReasons)
-            aiBox.addView(aiWarning)
             card.addView(aiBox)
         }
 
         card.addView(openButton)
         return card
+    }
+
+    private fun saveScanPreferences(
+        apiKey: String,
+        minPrice: Double,
+        maxPrice: Double,
+        minVolume: Long,
+        minChange: Double,
+        maxChange: Double,
+        selectedSort: String
+    ) {
+        prefs.saveApiKey(apiKey)
+        prefs.saveString("min_price", minPrice.toString())
+        prefs.saveString("max_price", maxPrice.toString())
+        prefs.saveString("min_volume", minVolume.toString())
+        prefs.saveString("min_change", minChange.toString())
+        prefs.saveString("max_change", maxChange.toString())
+        prefs.saveString("sort_option", selectedSort)
     }
 
     private fun buildNotes(s: ScanStock): String {
@@ -485,7 +533,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun normalizeSymbol(raw: String): String {
-        return raw.trim().replace("+", "").replace(Regex("[^A-Za-z0-9.\\-]"), "").uppercase()
+        return raw.trim()
+            .replace("+", "")
+            .replace(Regex("[^A-Za-z0-9.\\-]"), "")
+            .uppercase()
     }
 
     private fun parseDouble(value: String): Double {
@@ -500,14 +551,29 @@ class MainActivity : AppCompatActivity() {
         return value.replace(",", "").trim().toLongOrNull() ?: 0L
     }
 
+    private fun extractApiError(json: JSONObject): String? {
+        if (json.has("Note")) {
+            return json.optString("Note", "הגעת למגבלת הבקשות של Alpha Vantage")
+        }
+        if (json.has("Information")) {
+            return json.optString("Information", "לא התקבלה תשובה תקינה מהשרת")
+        }
+        if (json.has("Error Message")) {
+            return json.optString("Error Message", "שגיאה מהשרת")
+        }
+        return null
+    }
+
     private fun computeQualityScore(price: Double, changePercent: Double, volume: Long): Int {
         val priceScore = when {
             price in 1.0..30.0 -> 30.0
             price in 30.0..80.0 -> 22.0
             else -> 15.0
         }
+
         val changeScore = changePercent.coerceIn(0.0, 60.0) * 0.8
         val volumeScore = (ln(volume.coerceAtLeast(1).toDouble()) * 4.5).coerceAtMost(30.0)
+
         return (priceScore + changeScore + volumeScore).toInt().coerceIn(1, 100)
     }
 
