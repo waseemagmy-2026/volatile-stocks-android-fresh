@@ -53,8 +53,7 @@ class StockDetailActivity : AppCompatActivity() {
         chart = findViewById(R.id.lineChart)
 
         symbol = intent.getStringExtra("symbol") ?: ""
-        apiKey = getSharedPreferences("scanner_prefs", Context.MODE_PRIVATE)
-            .getString("api_key", "") ?: ""
+        apiKey = AppPrefs(this).getApiKey()
 
         symbolText.text = symbol
 
