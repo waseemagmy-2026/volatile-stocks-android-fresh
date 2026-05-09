@@ -320,7 +320,6 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     aiAnalyzeButton.isEnabled = true
                     statusText.text = "שגיאה בניתוח AI"
-                    renderResults(lastScanResults)
                     resultsContainer.addView(buildErrorText(e.message ?: "AI failed"))
                 }
             }
@@ -349,4 +348,184 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
             setBackgroundColor(Color.parseColor("#101010"))
-            val params = Linear
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.bottomMargin = 24
+            layoutParams = params
+        }
+
+        val title = TextView(this).apply {
+            text = "${stock.symbol} | $${"%.2f".format(stock.price)}"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.START
+        }
+
+        val info = TextView(this).apply {
+            text = buildString {
+                append("שינוי יומי: ${"%.2f".format(stock.changePercent)}%\n")
+                append("מחזור: ${formatVolume(stock.volume)}\n")
+                append("ציון איכות: ${stock.score}/100\n")
+                append(
+                    when {
+                        stock.rawSymbol != stock.symbol ->
+                            "סיכום: זוהה סימבול עם תווים מיוחדים, נוקה ל-${stock.symbol} לפתיחה טובה יותר."
+                        stock.score >= 85 ->
+                            "סיכום: תנודתיות חזקה, מחזור טוב וסיכוי מעניין לבדיקה."
+                        stock.score >= 70 ->
+                            "סיכום: מניה פעילה עם נתונים טובים יחסית."
+                        else ->
+                            "סיכום: מניה סבירה, מומלץ לבדוק גרף ו-RSI לפני החלטה."
+                    }
+                )
+            }
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.END
+            setPadding(0, 18, 0, 0)
+        }
+
+        val openButton = Button(this).apply {
+            text = "פתח פירוט"
+            setOnClickListener { openStockDetail(stock.symbol) }
+        }
+
+        card.addView(title)
+        card.addView(info)
+
+        if (ai != null) {
+            val aiBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(20, 20, 20, 20)
+                setBackgroundColor(Color.parseColor("#18202A"))
+                val p = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                p.topMargin = 18
+                layoutParams = p
+            }
+
+            val aiTitle = TextView(this).apply {
+                text = "ניתוח AI: ${ai.aiScore}/100 | ${ai.verdict}"
+                textSize = 17f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.END
+            }
+
+            val aiRisk = TextView(this).apply {
+                text = "רמת סיכון: ${ai.riskLevel}"
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.END
+                setPadding(0, 10, 0, 0)
+            }
+
+            val aiReasons = TextView(this).apply {
+                text = "סיבות:\n" + ai.reasons.joinToString("\n") { "• $it" }
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.END
+                setPadding(0, 10, 0, 0)
+            }
+
+            val aiWarning = TextView(this).apply {
+                text = "אזהרה: ${ai.warning}"
+                textSize = 15f
+                setTextColor(Color.parseColor("#FFD166"))
+                gravity = Gravity.END
+                setPadding(0, 10, 0, 0)
+            }
+
+            aiBox.addView(aiTitle)
+            aiBox.addView(aiRisk)
+            aiBox.addView(aiReasons)
+            aiBox.addView(aiWarning)
+            card.addView(aiBox)
+        }
+
+        card.addView(openButton)
+        return card
+    }
+
+    private fun buildNotes(s: ScanStock): String {
+        return when {
+            s.score >= 85 -> "Strong momentum and strong volume"
+            s.score >= 70 -> "Good setup with decent participation"
+            else -> "Watch carefully, setup is not top tier"
+        }
+    }
+
+    private fun buildErrorText(message: String): TextView {
+        return TextView(this).apply {
+            text = message
+            textSize = 16f
+            setTextColor(Color.parseColor("#FF6B6B"))
+            gravity = Gravity.CENTER
+            setPadding(16, 32, 16, 32)
+        }
+    }
+
+    private fun buildInfoText(message: String): TextView {
+        return TextView(this).apply {
+            text = message
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(16, 32, 16, 32)
+        }
+    }
+
+    private fun openStockDetail(symbol: String) {
+        val intent = Intent(this, StockDetailActivity::class.java)
+        intent.putExtra("symbol", normalizeSymbol(symbol))
+        startActivity(intent)
+    }
+
+    private fun normalizeSymbol(raw: String): String {
+        return raw.trim().replace("+", "").replace(Regex("[^A-Za-z0-9.\\-]"), "").uppercase()
+    }
+
+    private fun parseDouble(value: String): Double {
+        return value.replace(",", "").trim().toDoubleOrNull() ?: 0.0
+    }
+
+    private fun parsePercent(value: String): Double {
+        return value.replace("%", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+    }
+
+    private fun parseLong(value: String): Long {
+        return value.replace(",", "").trim().toLongOrNull() ?: 0L
+    }
+
+    private fun computeQualityScore(price: Double, changePercent: Double, volume: Long): Int {
+        val priceScore = when {
+            price in 1.0..30.0 -> 30.0
+            price in 30.0..80.0 -> 22.0
+            else -> 15.0
+        }
+        val changeScore = changePercent.coerceIn(0.0, 60.0) * 0.8
+        val volumeScore = (ln(volume.coerceAtLeast(1).toDouble()) * 4.5).coerceAtMost(30.0)
+        return (priceScore + changeScore + volumeScore).toInt().coerceIn(1, 100)
+    }
+
+    private fun formatVolume(volume: Long): String {
+        return when {
+            volume >= 1_000_000_000 -> "%.2fB".format(volume / 1_000_000_000.0)
+            volume >= 1_000_000 -> "%.1fM".format(volume / 1_000_000.0)
+            volume >= 1_000 -> "%.1fK".format(volume / 1_000.0)
+            else -> volume.toString()
+        }
+    }
+}
+
+data class ScanStock(
+    val symbol: String,
+    val rawSymbol: String,
+    val price: Double,
+    val changePercent: Double,
+    val volume: Long,
+    val score: Int
+)
