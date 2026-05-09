@@ -2,6 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fillViewport="true"
     android:background="#000000">
 
     <LinearLayout
@@ -15,131 +16,169 @@
             android:layout_height="wrap_content"
             android:text="Volatile Stocks Pro"
             android:textColor="#FFFFFF"
-            android:textSize="28sp"
             android:textStyle="bold"
+            android:textSize="28sp"
             android:gravity="center"
-            android:layout_marginBottom="18dp" />
+            android:paddingBottom="20dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="API Key"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
 
         <EditText
             android:id="@+id/apiKeyInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Alpha Vantage API key"
-            android:inputType="text"
+            android:hint="Alpha Vantage API Key"
             android:textColor="#FFFFFF"
             android:textColorHint="#AAAAAA"
             android:backgroundTint="#2196F3"
-            android:layout_marginBottom="12dp" />
+            android:inputType="text"
+            android:paddingBottom="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="בחירה ידנית של מניה"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:paddingTop="8dp" />
+
+        <EditText
+            android:id="@+id/manualSymbolInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="למשל AAPL / NVDA / PLUG / JOBY"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#AAAAAA"
+            android:backgroundTint="#2196F3"
+            android:inputType="textCapCharacters" />
+
+        <Button
+            android:id="@+id/openSymbolButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="פתח מניה ידנית"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="20dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="מחיר מינימום"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
 
         <EditText
             android:id="@+id/minPriceInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="1"
             android:inputType="numberDecimal"
+            android:text="1"
             android:textColor="#FFFFFF"
-            android:textColorHint="#AAAAAA"
             android:backgroundTint="#2196F3"
-            android:layout_marginBottom="12dp" />
+            android:gravity="end"
+            android:paddingBottom="14dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="מחיר מקסימום"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
 
         <EditText
             android:id="@+id/maxPriceInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="50"
             android:inputType="numberDecimal"
+            android:text="50"
             android:textColor="#FFFFFF"
-            android:textColorHint="#AAAAAA"
             android:backgroundTint="#2196F3"
-            android:layout_marginBottom="12dp" />
+            android:gravity="end"
+            android:paddingBottom="14dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="מחזור מינימלי"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
 
         <EditText
             android:id="@+id/minVolumeInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="100000"
             android:inputType="number"
+            android:text="100000"
             android:textColor="#FFFFFF"
-            android:textColorHint="#AAAAAA"
             android:backgroundTint="#2196F3"
-            android:layout_marginBottom="12dp" />
+            android:gravity="end"
+            android:paddingBottom="14dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="אחוז עלייה מינימלי"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
 
         <EditText
             android:id="@+id/minChangeInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="3"
             android:inputType="numberDecimal"
+            android:text="3"
             android:textColor="#FFFFFF"
             android:backgroundTint="#2196F3"
-            android:layout_marginBottom="12dp" />
+            android:gravity="end"
+            android:paddingBottom="14dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="אחוז עלייה מקסימלי"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
 
         <EditText
             android:id="@+id/maxChangeInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="80"
             android:inputType="numberDecimal"
+            android:text="80"
             android:textColor="#FFFFFF"
             android:backgroundTint="#2196F3"
-            android:layout_marginBottom="12dp" />
+            android:gravity="end"
+            android:paddingBottom="14dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="מיון"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
 
         <Spinner
             android:id="@+id/sortSpinner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="18dp" />
 
         <Button
             android:id="@+id/scanButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="סריקה עכשיו"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="12dp" />
+            android:text="סריקה עכשיו" />
 
         <TextView
             android:id="@+id/statusText"
@@ -147,9 +186,10 @@
             android:layout_height="wrap_content"
             android:text="מוכן לסריקה"
             android:textColor="#FFFFFF"
-            android:textSize="16sp"
+            android:textSize="18sp"
             android:gravity="center"
-            android:layout_marginBottom="16dp" />
+            android:paddingTop="16dp"
+            android:paddingBottom="12dp" />
 
         <LinearLayout
             android:id="@+id/resultsContainer"
