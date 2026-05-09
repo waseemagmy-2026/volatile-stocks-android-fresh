@@ -68,6 +68,45 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:text="כתובת שרת AI"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
+
+        <EditText
+            android:id="@+id/backendUrlInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="http://127.0.0.1:3000"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#AAAAAA"
+            android:backgroundTint="#2196F3"
+            android:inputType="textUri"
+            android:paddingBottom="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="מצב AI"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:gravity="end" />
+
+        <Spinner
+            android:id="@+id/aiModeSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp" />
+
+        <Button
+            android:id="@+id/aiAnalyzeButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ניתוח AI לתוצאות"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="מחיר מינימום"
             android:textColor="#FFFFFF"
             android:textSize="18sp"
