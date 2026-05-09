@@ -29,7 +29,7 @@ class StockDetailActivity : AppCompatActivity() {
     private lateinit var highThresholdInput: EditText
     private lateinit var saveAlertsButton: Button
     private lateinit var refreshButton: Button
-    private lateinit var chart: LineChart
+    private lateinit var lineChart: LineChart
 
     private val handler = Handler(Looper.getMainLooper())
     private var refreshRunnable: Runnable? = null
@@ -50,7 +50,7 @@ class StockDetailActivity : AppCompatActivity() {
         highThresholdInput = findViewById(R.id.highThresholdInput)
         saveAlertsButton = findViewById(R.id.saveAlertsButton)
         refreshButton = findViewById(R.id.refreshButton)
-        chart = findViewById(R.id.lineChart)
+        lineChart = findViewById(R.id.lineChart)
 
         symbol = intent.getStringExtra("symbol") ?: ""
         apiKey = getSharedPreferences("scanner_prefs", Context.MODE_PRIVATE)
@@ -97,14 +97,15 @@ class StockDetailActivity : AppCompatActivity() {
     }
 
     private fun setupChart() {
-        chart.setNoDataText("No chart data")
-        chart.setTouchEnabled(true)
-        chart.setPinchZoom(true)
-        chart.axisRight.isEnabled = false
-        chart.legend.isEnabled = false
-        val desc = Description()
-        desc.text = ""
-        chart.description = desc
+        lineChart.setNoDataText("No chart data")
+        lineChart.setTouchEnabled(true)
+        lineChart.setPinchZoom(true)
+        lineChart.axisRight.isEnabled = false
+        lineChart.legend.isEnabled = false
+
+        val description = Description()
+        description.text = ""
+        lineChart.description = description
     }
 
     private fun loadAllData() {
@@ -135,22 +136,22 @@ class StockDetailActivity : AppCompatActivity() {
                 val response = URL(url).readText()
                 val json = JSONObject(response)
 
-                var key: String? = null
+                var seriesKey: String? = null
                 if (json.has("Time Series (5min)")) {
-                    key = "Time Series (5min)"
+                    seriesKey = "Time Series (5min)"
                 } else if (json.has("Time Series (15min)")) {
-                    key = "Time Series (15min)"
+                    seriesKey = "Time Series (15min)"
                 }
 
-                if (key == null) {
+                if (seriesKey == null) {
                     runOnUiThread {
-                        chart.clear()
+                        lineChart.clear()
                         chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
                     }
                     return@thread
                 }
 
-                val series = json.getJSONObject(key)
+                val series = json.getJSONObject(seriesKey)
                 val times = ArrayList<String>()
                 val iterator = series.keys()
                 while (iterator.hasNext()) {
@@ -160,7 +161,7 @@ class StockDetailActivity : AppCompatActivity() {
 
                 if (times.isEmpty()) {
                     runOnUiThread {
-                        chart.clear()
+                        lineChart.clear()
                         chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
                     }
                     return@thread
@@ -175,20 +176,25 @@ class StockDetailActivity : AppCompatActivity() {
                     val item = series.getJSONObject(time)
                     val close = item.optString("4. close", "0").toFloatOrNull() ?: 0f
                     val high = item.optString("2. high", "0").toDoubleOrNull() ?: 0.0
-                    if (high > dailyHigh) dailyHigh = high
+
+                    if (high > dailyHigh) {
+                        dailyHigh = high
+                    }
+
                     lastClose = close.toDouble()
                     entries.add(Entry(index, close))
                     index += 1f
                 }
 
                 runOnUiThread {
-                    val dataSet = LineDataSet(entries, symbol)
-                    dataSet.setDrawCircles(false)
-                    dataSet.lineWidth = 2f
-                    dataSet.setDrawValues(false)
+                    val dataSet = LineDataSet(entries, symbol).apply {
+                        setDrawCircles(false)
+                        lineWidth = 2f
+                        setDrawValues(false)
+                    }
 
-                    chart.data = LineData(dataSet)
-                    chart.invalidate()
+                    lineChart.data = LineData(dataSet)
+                    lineChart.invalidate()
 
                     if (dailyHigh > 0) {
                         highText.text = "שיא יומי: %.2f".format(dailyHigh)
@@ -202,7 +208,7 @@ class StockDetailActivity : AppCompatActivity() {
 
             } catch (e: Exception) {
                 runOnUiThread {
-                    chart.clear()
+                    lineChart.clear()
                     chartStatusText.text = "שגיאה בטעינת גרף"
                 }
             }
@@ -287,7 +293,7 @@ class StockDetailActivity : AppCompatActivity() {
                         highText.text = "שיא יומי: $high"
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
             }
         }
     }
