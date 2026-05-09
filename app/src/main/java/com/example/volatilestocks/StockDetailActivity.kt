@@ -29,7 +29,7 @@ class StockDetailActivity : AppCompatActivity() {
     private lateinit var highThresholdInput: EditText
     private lateinit var saveAlertsButton: Button
     private lateinit var refreshButton: Button
-    private lateinit var lineChart: LineChart
+    private lateinit var chart: LineChart
 
     private val handler = Handler(Looper.getMainLooper())
     private var refreshRunnable: Runnable? = null
@@ -50,7 +50,7 @@ class StockDetailActivity : AppCompatActivity() {
         highThresholdInput = findViewById(R.id.highThresholdInput)
         saveAlertsButton = findViewById(R.id.saveAlertsButton)
         refreshButton = findViewById(R.id.refreshButton)
-        lineChart = findViewById(R.id.lineChart)
+        chart = findViewById(R.id.lineChart)
 
         symbol = intent.getStringExtra("symbol") ?: ""
         apiKey = getSharedPreferences("scanner_prefs", Context.MODE_PRIVATE)
@@ -97,15 +97,14 @@ class StockDetailActivity : AppCompatActivity() {
     }
 
     private fun setupChart() {
-        lineChart.setNoDataText("No chart data")
-        lineChart.setTouchEnabled(true)
-        lineChart.setPinchZoom(true)
-        lineChart.axisRight.isEnabled = false
-        lineChart.legend.isEnabled = false
-
-        val description = Description()
-        description.text = ""
-        lineChart.description = description
+        chart.setNoDataText("No chart data")
+        chart.setTouchEnabled(true)
+        chart.setPinchZoom(true)
+        chart.axisRight.isEnabled = false
+        chart.legend.isEnabled = false
+        val desc = Description()
+        desc.text = ""
+        chart.description = desc
     }
 
     private fun loadAllData() {
@@ -124,8 +123,8 @@ class StockDetailActivity : AppCompatActivity() {
         thread {
             try {
                 val url = buildUrl(
-                    "TIME_SERIES_INTRADAY",
-                    mapOf(
+                    function = "TIME_SERIES_INTRADAY",
+                    extra = mapOf(
                         "symbol" to symbol,
                         "interval" to "5min",
                         "outputsize" to "compact",
@@ -136,32 +135,26 @@ class StockDetailActivity : AppCompatActivity() {
                 val response = URL(url).readText()
                 val json = JSONObject(response)
 
-                var seriesKey: String? = null
-                if (json.has("Time Series (5min)")) {
-                    seriesKey = "Time Series (5min)"
-                } else if (json.has("Time Series (15min)")) {
-                    seriesKey = "Time Series (15min)"
+                val key = when {
+                    json.has("Time Series (5min)") -> "Time Series (5min)"
+                    json.has("Time Series (15min)") -> "Time Series (15min)"
+                    else -> null
                 }
 
-                if (seriesKey == null) {
+                if (key == null) {
                     runOnUiThread {
-                        lineChart.clear()
+                        chart.clear()
                         chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
                     }
                     return@thread
                 }
 
-                val series = json.getJSONObject(seriesKey)
-                val times = ArrayList<String>()
-                val iterator = series.keys()
-                while (iterator.hasNext()) {
-                    times.add(iterator.next())
-                }
-                times.sort()
+                val series = json.getJSONObject(key)
+                val keys = series.keys().asSequence().toList().sorted()
 
-                if (times.isEmpty()) {
+                if (keys.isEmpty()) {
                     runOnUiThread {
-                        lineChart.clear()
+                        chart.clear()
                         chartStatusText.text = "לא התקבלו נתוני גרף למניה $symbol"
                     }
                     return@thread
@@ -172,15 +165,11 @@ class StockDetailActivity : AppCompatActivity() {
                 var dailyHigh = 0.0
                 var lastClose = 0.0
 
-                for (time in times) {
+                for (time in keys) {
                     val item = series.getJSONObject(time)
                     val close = item.optString("4. close", "0").toFloatOrNull() ?: 0f
                     val high = item.optString("2. high", "0").toDoubleOrNull() ?: 0.0
-
-                    if (high > dailyHigh) {
-                        dailyHigh = high
-                    }
-
+                    if (high > dailyHigh) dailyHigh = high
                     lastClose = close.toDouble()
                     entries.add(Entry(index, close))
                     index += 1f
@@ -192,9 +181,8 @@ class StockDetailActivity : AppCompatActivity() {
                         lineWidth = 2f
                         setDrawValues(false)
                     }
-
-                    lineChart.data = LineData(dataSet)
-                    lineChart.invalidate()
+                    chart.data = LineData(dataSet)
+                    chart.invalidate()
 
                     if (dailyHigh > 0) {
                         highText.text = "שיא יומי: %.2f".format(dailyHigh)
@@ -208,8 +196,8 @@ class StockDetailActivity : AppCompatActivity() {
 
             } catch (e: Exception) {
                 runOnUiThread {
-                    lineChart.clear()
-                    chartStatusText.text = "שגיאה בטעינת גרף"
+                    chart.clear()
+                    chartStatusText.text = "שגיאה בטעינת גרף: ${e.message}"
                 }
             }
         }
@@ -219,8 +207,8 @@ class StockDetailActivity : AppCompatActivity() {
         thread {
             try {
                 val url = buildUrl(
-                    "RSI",
-                    mapOf(
+                    function = "RSI",
+                    extra = mapOf(
                         "symbol" to symbol,
                         "interval" to "5min",
                         "time_period" to "14",
@@ -239,22 +227,17 @@ class StockDetailActivity : AppCompatActivity() {
                 }
 
                 val rsiObject = json.getJSONObject("Technical Analysis: RSI")
-                val rsiTimes = ArrayList<String>()
-                val iterator = rsiObject.keys()
-                while (iterator.hasNext()) {
-                    rsiTimes.add(iterator.next())
-                }
-                rsiTimes.sort()
+                val latestKey = rsiObject.keys().asSequence().toList().sorted().lastOrNull()
 
-                if (rsiTimes.isEmpty()) {
+                if (latestKey == null) {
                     runOnUiThread {
                         rsiText.text = "RSI: --"
                     }
                     return@thread
                 }
 
-                val latestKey = rsiTimes[rsiTimes.size - 1]
-                val rsiValue = rsiObject.getJSONObject(latestKey).optString("RSI", "--")
+                val rsiValue = rsiObject.getJSONObject(latestKey)
+                    .optString("RSI", "--")
 
                 runOnUiThread {
                     rsiText.text = "RSI: $rsiValue"
@@ -272,8 +255,8 @@ class StockDetailActivity : AppCompatActivity() {
         thread {
             try {
                 val url = buildUrl(
-                    "GLOBAL_QUOTE",
-                    mapOf("symbol" to symbol)
+                    function = "GLOBAL_QUOTE",
+                    extra = mapOf("symbol" to symbol)
                 )
 
                 val response = URL(url).readText()
@@ -286,10 +269,10 @@ class StockDetailActivity : AppCompatActivity() {
                 val high = quote.optString("03. high", "--")
 
                 runOnUiThread {
-                    if (lastPriceText.text.toString().contains("--")) {
+                    if (lastPriceText.text.contains("--")) {
                         lastPriceText.text = "מחיר אחרון: $price"
                     }
-                    if (highText.text.toString().contains("--")) {
+                    if (highText.text.contains("--")) {
                         highText.text = "שיא יומי: $high"
                     }
                 }
