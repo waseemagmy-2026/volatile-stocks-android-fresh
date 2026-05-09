@@ -13,6 +13,10 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.BufferedWriter
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import kotlin.concurrent.thread
@@ -26,6 +30,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var manualSymbolInput: EditText
     private lateinit var openSymbolButton: Button
 
+    private lateinit var backendUrlInput: EditText
+    private lateinit var aiModeSpinner: Spinner
+    private lateinit var aiAnalyzeButton: Button
+
     private lateinit var minPriceInput: EditText
     private lateinit var maxPriceInput: EditText
     private lateinit var minVolumeInput: EditText
@@ -36,12 +44,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var resultsContainer: LinearLayout
 
-    private val sortOptions = listOf(
-        "ציון איכות",
-        "שינוי יומי",
-        "מחזור",
-        "מחיר"
-    )
+    private val sortOptions = listOf("ציון איכות", "שינוי יומי", "מחזור", "מחיר")
+    private val aiModes = listOf("balanced", "aggressive", "conservative")
+
+    private var lastScanResults: List<ScanStock> = emptyList()
+    private var lastAiAnalyses: Map<String, AiAnalysis> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +59,10 @@ class MainActivity : AppCompatActivity() {
         apiKeyInput = findViewById(R.id.apiKeyInput)
         manualSymbolInput = findViewById(R.id.manualSymbolInput)
         openSymbolButton = findViewById(R.id.openSymbolButton)
+
+        backendUrlInput = findViewById(R.id.backendUrlInput)
+        aiModeSpinner = findViewById(R.id.aiModeSpinner)
+        aiAnalyzeButton = findViewById(R.id.aiAnalyzeButton)
 
         minPriceInput = findViewById(R.id.minPriceInput)
         maxPriceInput = findViewById(R.id.maxPriceInput)
@@ -64,12 +75,14 @@ class MainActivity : AppCompatActivity() {
         resultsContainer = findViewById(R.id.resultsContainer)
 
         apiKeyInput.setText(prefs.getApiKey())
+        manualSymbolInput.setText(prefs.getString("manual_symbol", ""))
+        backendUrlInput.setText(prefs.getString("backend_url", "http://127.0.0.1:3000"))
+
         minPriceInput.setText(prefs.getString("min_price", "1"))
         maxPriceInput.setText(prefs.getString("max_price", "50"))
         minVolumeInput.setText(prefs.getString("min_volume", "100000"))
         minChangeInput.setText(prefs.getString("min_change", "3"))
         maxChangeInput.setText(prefs.getString("max_change", "80"))
-        manualSymbolInput.setText(prefs.getString("manual_symbol", ""))
 
         val spinnerAdapter = ArrayAdapter(
             this,
@@ -79,26 +92,33 @@ class MainActivity : AppCompatActivity() {
         spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         sortSpinner.adapter = spinnerAdapter
 
+        val aiModeAdapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            aiModes
+        )
+        aiModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        aiModeSpinner.adapter = aiModeAdapter
+
         val savedSort = prefs.getString("sort_option", "ציון איכות")
-        val savedIndex = sortOptions.indexOf(savedSort).coerceAtLeast(0)
-        sortSpinner.setSelection(savedIndex)
+        sortSpinner.setSelection(sortOptions.indexOf(savedSort).coerceAtLeast(0))
+
+        val savedAiMode = prefs.getString("ai_mode", "balanced")
+        aiModeSpinner.setSelection(aiModes.indexOf(savedAiMode).coerceAtLeast(0))
 
         openSymbolButton.setOnClickListener {
-            val raw = manualSymbolInput.text.toString().trim()
-            val clean = normalizeSymbol(raw)
-
+            val clean = normalizeSymbol(manualSymbolInput.text.toString())
             if (clean.isBlank()) {
                 statusText.text = "יש להזין סימבול מניה, למשל AAPL"
                 return@setOnClickListener
             }
-
             prefs.saveString("manual_symbol", clean)
             openStockDetail(clean)
         }
 
-        scanButton.setOnClickListener {
-            runScan()
-        }
+        scanButton.setOnClickListener { runScan() }
+
+        aiAnalyzeButton.setOnClickListener { runAiAnalysis() }
     }
 
     private fun runScan() {
@@ -128,6 +148,8 @@ class MainActivity : AppCompatActivity() {
         statusText.text = "טוען נתוני שוק..."
         resultsContainer.removeAllViews()
         scanButton.isEnabled = false
+        aiAnalyzeButton.isEnabled = false
+        lastAiAnalyses = emptyMap()
 
         thread {
             try {
@@ -185,15 +207,121 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     scanButton.isEnabled = true
+                    aiAnalyzeButton.isEnabled = sorted.isNotEmpty()
+                    lastScanResults = sorted
                     renderResults(sorted)
                 }
 
             } catch (e: Exception) {
                 runOnUiThread {
                     scanButton.isEnabled = true
+                    aiAnalyzeButton.isEnabled = false
                     statusText.text = "שגיאה בטעינת הסורק"
                     resultsContainer.removeAllViews()
                     resultsContainer.addView(buildErrorText(e.message ?: "שגיאה לא ידועה"))
+                }
+            }
+        }
+    }
+
+    private fun runAiAnalysis() {
+        if (lastScanResults.isEmpty()) {
+            statusText.text = "אין תוצאות לניתוח AI"
+            return
+        }
+
+        val backendUrl = backendUrlInput.text.toString().trim().removeSuffix("/")
+        if (backendUrl.isBlank()) {
+            statusText.text = "יש להזין כתובת שרת AI"
+            return
+        }
+
+        val mode = aiModeSpinner.selectedItem?.toString() ?: "balanced"
+        prefs.saveString("backend_url", backendUrl)
+        prefs.saveString("ai_mode", mode)
+
+        statusText.text = "שולח לניתוח AI..."
+        aiAnalyzeButton.isEnabled = false
+
+        val topStocks = lastScanResults.take(5)
+
+        thread {
+            try {
+                val reqJson = JSONObject()
+                reqJson.put("mode", mode)
+
+                val stocksArray = JSONArray()
+                topStocks.forEach { s ->
+                    val obj = JSONObject()
+                    obj.put("symbol", s.symbol)
+                    obj.put("price", s.price)
+                    obj.put("changePercent", s.changePercent)
+                    obj.put("volume", s.volume)
+                    obj.put("score", s.score)
+                    obj.put("notes", buildNotes(s))
+                    stocksArray.put(obj)
+                }
+                reqJson.put("stocks", stocksArray)
+
+                val conn = URL("$backendUrl/analyze-stocks").openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 15000
+                conn.readTimeout = 25000
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+
+                BufferedWriter(OutputStreamWriter(conn.outputStream, Charsets.UTF_8)).use {
+                    it.write(reqJson.toString())
+                    it.flush()
+                }
+
+                val code = conn.responseCode
+                val body = if (code in 200..299) {
+                    BufferedReader(conn.inputStream.reader()).readText()
+                } else {
+                    BufferedReader(conn.errorStream.reader()).readText()
+                }
+
+                if (code !in 200..299) {
+                    throw Exception("AI server error: $body")
+                }
+
+                val resp = JSONObject(body)
+                val analysesArr = resp.optJSONArray("analyses") ?: JSONArray()
+                val map = LinkedHashMap<String, AiAnalysis>()
+
+                for (i in 0 until analysesArr.length()) {
+                    val a = analysesArr.getJSONObject(i)
+                    val reasonsJson = a.optJSONArray("reasons") ?: JSONArray()
+                    val reasons = mutableListOf<String>()
+                    for (j in 0 until reasonsJson.length()) {
+                        reasons.add(reasonsJson.optString(j))
+                    }
+
+                    val analysis = AiAnalysis(
+                        symbol = a.optString("symbol"),
+                        aiScore = a.optInt("aiScore"),
+                        verdict = a.optString("verdict"),
+                        riskLevel = a.optString("riskLevel"),
+                        reasons = reasons,
+                        warning = a.optString("warning")
+                    )
+                    map[analysis.symbol.uppercase()] = analysis
+                }
+
+                runOnUiThread {
+                    lastAiAnalyses = map
+                    aiAnalyzeButton.isEnabled = true
+                    statusText.text = "ניתוח AI הושלם"
+                    renderResults(lastScanResults)
+                }
+
+            } catch (e: Exception) {
+                runOnUiThread {
+                    aiAnalyzeButton.isEnabled = true
+                    statusText.text = "שגיאה בניתוח AI"
+                    renderResults(lastScanResults)
+                    resultsContainer.addView(buildErrorText(e.message ?: "AI failed"))
                 }
             }
         }
@@ -211,147 +339,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         statusText.text = "נמצאו ${results.size} מניות תואמות"
-
         results.forEach { stock ->
-            resultsContainer.addView(buildStockCard(stock))
+            resultsContainer.addView(buildStockCard(stock, lastAiAnalyses[stock.symbol.uppercase()]))
         }
     }
 
-    private fun buildStockCard(stock: ScanStock): LinearLayout {
+    private fun buildStockCard(stock: ScanStock, ai: AiAnalysis?): LinearLayout {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
             setBackgroundColor(Color.parseColor("#101010"))
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.bottomMargin = 24
-            layoutParams = params
-            setOnClickListener {
-                openStockDetail(stock.symbol)
-            }
-        }
-
-        val title = TextView(this).apply {
-            text = "${stock.symbol} | $${"%.2f".format(stock.price)}"
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.START
-        }
-
-        val info = TextView(this).apply {
-            text = buildString {
-                append("שינוי יומי: ${"%.2f".format(stock.changePercent)}%\n")
-                append("מחזור: ${formatVolume(stock.volume)}\n")
-                append("ציון איכות: ${stock.score}/100\n")
-                append(
-                    when {
-                        stock.rawSymbol != stock.symbol ->
-                            "סיכום: זוהה סימבול עם תווים מיוחדים, נוקה ל-${stock.symbol} לפתיחה טובה יותר."
-                        stock.score >= 85 ->
-                            "סיכום: תנודתיות חזקה, מחזור טוב וסיכוי מעניין לבדיקה."
-                        stock.score >= 70 ->
-                            "סיכום: מניה פעילה עם נתונים טובים יחסית."
-                        else ->
-                            "סיכום: מניה סבירה, מומלץ לבדוק גרף ו-RSI לפני החלטה."
-                    }
-                )
-            }
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.END
-            setPadding(0, 18, 0, 0)
-        }
-
-        val openButton = Button(this).apply {
-            text = "פתח פירוט"
-            setOnClickListener {
-                openStockDetail(stock.symbol)
-            }
-        }
-
-        card.addView(title)
-        card.addView(info)
-        card.addView(openButton)
-
-        return card
-    }
-
-    private fun buildErrorText(message: String): TextView {
-        return TextView(this).apply {
-            text = message
-            textSize = 16f
-            setTextColor(Color.parseColor("#FF6B6B"))
-            gravity = Gravity.CENTER
-            setPadding(16, 32, 16, 32)
-        }
-    }
-
-    private fun buildInfoText(message: String): TextView {
-        return TextView(this).apply {
-            text = message
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(16, 32, 16, 32)
-        }
-    }
-
-    private fun openStockDetail(symbol: String) {
-        val intent = Intent(this, StockDetailActivity::class.java)
-        intent.putExtra("symbol", normalizeSymbol(symbol))
-        startActivity(intent)
-    }
-
-    private fun normalizeSymbol(raw: String): String {
-        return raw
-            .trim()
-            .replace("+", "")
-            .replace(Regex("[^A-Za-z0-9.\\-]"), "")
-            .uppercase()
-    }
-
-    private fun parseDouble(value: String): Double {
-        return value.replace(",", "").trim().toDoubleOrNull() ?: 0.0
-    }
-
-    private fun parsePercent(value: String): Double {
-        return value.replace("%", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
-    }
-
-    private fun parseLong(value: String): Long {
-        return value.replace(",", "").trim().toLongOrNull() ?: 0L
-    }
-
-    private fun computeQualityScore(price: Double, changePercent: Double, volume: Long): Int {
-        val priceScore = when {
-            price in 1.0..30.0 -> 30.0
-            price in 30.0..80.0 -> 22.0
-            else -> 15.0
-        }
-
-        val changeScore = changePercent.coerceIn(0.0, 60.0) * 0.8
-        val volumeScore = (ln(volume.coerceAtLeast(1).toDouble()) * 4.5).coerceAtMost(30.0)
-
-        return (priceScore + changeScore + volumeScore).toInt().coerceIn(1, 100)
-    }
-
-    private fun formatVolume(volume: Long): String {
-        return when {
-            volume >= 1_000_000_000 -> "%.2fB".format(volume / 1_000_000_000.0)
-            volume >= 1_000_000 -> "%.1fM".format(volume / 1_000_000.0)
-            volume >= 1_000 -> "%.1fK".format(volume / 1_000.0)
-            else -> volume.toString()
-        }
-    }
-}
-
-data class ScanStock(
-    val symbol: String,
-    val rawSymbol: String,
-    val price: Double,
-    val changePercent: Double,
-    val volume: Long,
-    val score: Int
-)
+            val params = Linear
