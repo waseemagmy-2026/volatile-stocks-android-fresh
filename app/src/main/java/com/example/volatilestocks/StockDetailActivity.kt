@@ -52,7 +52,7 @@ class StockDetailActivity : AppCompatActivity() {
         refreshButton = findViewById(R.id.refreshButton)
         chart = findViewById(R.id.lineChart)
 
-        symbol = intent.getStringExtra("symbol") ?: ""
+        symbol = normalizeSymbol(intent.getStringExtra("symbol") ?: "")
         apiKey = AppPrefs(this).getApiKey()
 
         symbolText.text = symbol
@@ -85,6 +85,14 @@ class StockDetailActivity : AppCompatActivity() {
         refreshRunnable?.let { handler.removeCallbacks(it) }
     }
 
+    private fun normalizeSymbol(raw: String): String {
+        return raw
+            .trim()
+            .replace("+", "")
+            .replace(Regex("[^A-Za-z0-9.\\-]"), "")
+            .uppercase()
+    }
+
     private fun startAutoRefresh() {
         refreshRunnable = object : Runnable {
             override fun run() {
@@ -112,6 +120,11 @@ class StockDetailActivity : AppCompatActivity() {
             return
         }
 
+        if (symbol.isBlank()) {
+            chartStatusText.text = "סימבול מניה לא תקין"
+            return
+        }
+
         chartStatusText.text = "טוען נתוני גרף ו-RSI..."
         loadIntradayChart()
         loadRsi()
@@ -133,6 +146,24 @@ class StockDetailActivity : AppCompatActivity() {
 
                 val response = URL(url).readText()
                 val json = JSONObject(response)
+
+                if (json.has("Note")) {
+                    val note = json.optString("Note", "מגבלת בקשות מהשרת.")
+                    runOnUiThread {
+                        chart.clear()
+                        chartStatusText.text = note
+                    }
+                    return@thread
+                }
+
+                if (json.has("Information")) {
+                    val info = json.optString("Information", "לא התקבלו נתוני גרף.")
+                    runOnUiThread {
+                        chart.clear()
+                        chartStatusText.text = info
+                    }
+                    return@thread
+                }
 
                 val key = when {
                     json.has("Time Series (5min)") -> "Time Series (5min)"
@@ -196,7 +227,7 @@ class StockDetailActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     chart.clear()
-                    chartStatusText.text = "שגיאה בטעינת גרף: ${e.message}"
+                    chartStatusText.text = "שגיאה בטעינת גרף: ${e.message ?: "לא ידוע"}"
                 }
             }
         }
@@ -235,14 +266,13 @@ class StockDetailActivity : AppCompatActivity() {
                     return@thread
                 }
 
-                val rsiValue = rsiObject.getJSONObject(latestKey)
-                    .optString("RSI", "--")
+                val rsiValue = rsiObject.getJSONObject(latestKey).optString("RSI", "--")
 
                 runOnUiThread {
                     rsiText.text = "RSI: $rsiValue"
                 }
 
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 runOnUiThread {
                     rsiText.text = "RSI: --"
                 }
