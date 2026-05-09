@@ -212,12 +212,12 @@ class MainActivity : AppCompatActivity() {
 
         statusText.text = "נמצאו ${results.size} מניות תואמות"
 
-        results.forEachIndexed { index, stock ->
-            resultsContainer.addView(buildStockCard(stock, index))
+        results.forEach { stock ->
+            resultsContainer.addView(buildStockCard(stock))
         }
     }
 
-    private fun buildStockCard(stock: ScanStock, index: Int): LinearLayout {
+    private fun buildStockCard(stock: ScanStock): LinearLayout {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 28, 28, 28)
@@ -313,25 +313,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun parseDouble(value: String): Double {
-        return value
-            .replace(",", "")
-            .trim()
-            .toDoubleOrNull() ?: 0.0
+        return value.replace(",", "").trim().toDoubleOrNull() ?: 0.0
     }
 
     private fun parsePercent(value: String): Double {
-        return value
-            .replace("%", "")
-            .replace(",", "")
-            .trim()
-            .toDoubleOrNull() ?: 0.0
+        return value.replace("%", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
     }
 
     private fun parseLong(value: String): Long {
-        return value
-            .replace(",", "")
-            .trim()
-            .toLongOrNull() ?: 0L
+        return value.replace(",", "").trim().toLongOrNull() ?: 0L
     }
 
     private fun computeQualityScore(price: Double, changePercent: Double, volume: Long): Int {
@@ -344,9 +334,7 @@ class MainActivity : AppCompatActivity() {
         val changeScore = changePercent.coerceIn(0.0, 60.0) * 0.8
         val volumeScore = (ln(volume.coerceAtLeast(1).toDouble()) * 4.5).coerceAtMost(30.0)
 
-        return (priceScore + changeScore + volumeScore)
-            .toInt()
-            .coerceIn(1, 100)
+        return (priceScore + changeScore + volumeScore).toInt().coerceIn(1, 100)
     }
 
     private fun formatVolume(volume: Long): String {
